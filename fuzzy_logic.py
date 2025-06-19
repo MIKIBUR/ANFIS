@@ -29,8 +29,8 @@ def evaluate_mf(row_input, mf_list):
     """Evaluate membership functions for given input row"""
     return [[gaussmf(row_input[i], **mf_list[i][k][1]) for k in range(len(mf_list[i]))] for i in range(len(row_input))]
 
-# Partial derivative of membership function
 def partial_dmf(x, mf_definition, partial_parameter):
+    """Partial derivative of membership function"""
     sigma = mf_definition[1]['sigma']
     mean = mf_definition[1]['mean']
 

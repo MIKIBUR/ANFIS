@@ -5,7 +5,7 @@ import numpy as np
 import anfis_core
 
 def load_data(input_features, decision_feature, rows=0, path="data.csv"):
-    # Load dataset
+    """Load dataset"""
     df = pd.read_csv(path)
     if rows == 0:
         rows = len(df)
@@ -23,6 +23,7 @@ def load_data(input_features, decision_feature, rows=0, path="data.csv"):
     return X_train, X_test, y_train, y_test, scaler
 
 def run_cli_interface(trained_mfs, trained_consequents, scaler):
+    """Listens for user input in console"""
     while True:
         try:
             user_input = input("\nEnter person_age, person_income (comma-separated), or 'exit' to quit:\n> ")

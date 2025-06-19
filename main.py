@@ -3,9 +3,10 @@ import data_loader
 import fuzzy_logic
 import evaluation
 import anfis_core
+import time
 
-# Main execution
 if __name__ == "__main__":
+    """Main execution"""
     # Argument parser setup
     parser = argparse.ArgumentParser(description="Run ANFIS training and evaluation.")
     parser.add_argument("--rows", type=int, default=200, help="Number of rows to load from the dataset")
@@ -26,23 +27,27 @@ if __name__ == "__main__":
         decision_feature = "years_to_pay"
 
     # Load data
-    X_train, X_test, y_train, y_test, scaler = data_loader.load_data(input_features=input_features, decision_feature=decision_feature, rows=args.rows)
+    X_train, X_test, y_train, y_test, scaler = data_loader.load_data(input_features, decision_feature, args.rows)
 
     # Generate membership functions
     mf_definitions = fuzzy_logic.generate_gauss_mfs(X_train)
 
     # Visualize membership functions
-    evaluation.visualize_gauss_mfs(mf_definitions,input_features)
+    evaluation.plot_mfs(mf_definitions,input_features,'Starting MFs definition for features')
 
     # Train ANFIS
+    start_time = time.time()
     trained_mfs, trained_consequents, training_errors = anfis_core.train_anfis(X_train, y_train, mf_definitions, epochs=args.epochs)
+    training_duration = time.time() - start_time 
+
+    evaluation.plot_mfs(trained_mfs,input_features,'Trained MFs definition for features')
 
     # Make predictions
     train_predictions = anfis_core.predict_anfis(X_train, trained_mfs, trained_consequents)
     test_predictions = anfis_core.predict_anfis(X_test, trained_mfs, trained_consequents)
 
     # Evaluate the trained model
-    evaluation.evaluate(y_train, y_test, train_predictions, test_predictions, training_errors)
+    evaluation.evaluate(y_train, y_test, train_predictions, test_predictions, training_errors, training_duration)
 
     # Run interactive CLI
-    data_loader.run_cli_interface(trained_mfs, trained_consequents, scaler)
+    # data_loader.run_cli_interface(trained_mfs, trained_consequents, scaler)

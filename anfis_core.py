@@ -233,7 +233,7 @@ def backprop(X, Y, mem_funcs, rules, consequents, column_x, columns, the_w_sum, 
     return param_grp
 
 
-def train_anfis(X, Y, mem_funcs, epochs=5, tolerance=1e-5, initial_gamma=300, k=0.05):
+def train_anfis(X, Y, mem_funcs, epochs=5, tolerance=1e-1, initial_gamma=300, k=0.05):
     """Train ANFIS using hybrid learning algorithm (LSE + backpropagation)"""
 
     # Initialize membership function indices for rule generation
@@ -267,7 +267,7 @@ def train_anfis(X, Y, mem_funcs, epochs=5, tolerance=1e-5, initial_gamma=300, k=
     epoch = 1
     
     # Main training loop
-    while (epoch < epochs) and (convergence is not True):
+    while (epoch < epochs + 1) and (convergence is not True):
         # Forward pass through network
         layer_four, w_sum, w = forward_half_pass(X, mem_funcs, rules)
         
@@ -282,9 +282,16 @@ def train_anfis(X, Y, mem_funcs, epochs=5, tolerance=1e-5, initial_gamma=300, k=
         error_matrix = Y - layer_five.T
         squared_errors = error_matrix ** 2
         total_error = np.sum(squared_errors)
-        rmse = np.sqrt(total_error / len(Y))
-        
-        print(f"\rCurrent epoch: {epoch}/{epochs} | RMSE: {rmse:.4f}", end='', flush=True)
+
+        dots = '.  '
+        if epoch%3 == 0:
+            dots = '.  '
+        elif epoch%3 == 1:
+            dots = '.. '
+        elif epoch%3 == 2:
+            dots = '...'
+
+        print(f"\rCurrent epoch: {epoch}/{epochs} {dots}", end='', flush=True)
         
         # Store error for convergence checking
         errors = np.append(errors, total_error)
