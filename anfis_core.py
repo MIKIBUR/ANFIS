@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import itertools
 import fuzzy_logic
-import copy
+from sklearn.metrics import mean_squared_error
 
 def forward_half_pass(X, mem_funcs, rules):
     """Forward pass through ANFIS layers 1-4"""
@@ -212,7 +212,7 @@ def backprop(X, Y, mem_funcs, rules, consequents, column_x, columns, the_w_sum, 
                     
                     # Calculate final gradient contribution for current output dimension
                     if Y.ndim == 1:
-                        error = Y[row_x] - the_layer_five[row_x, col_y]
+                        error = Y[row_x] - the_layer_five[row_x]
                     else:
                         error = Y[row_x, col_y] - the_layer_five[row_x, col_y]
                     
@@ -233,170 +233,114 @@ def backprop(X, Y, mem_funcs, rules, consequents, column_x, columns, the_w_sum, 
     return param_grp
 
 
-def train_anfis(X, Y, mem_funcs, epochs=5, tolerance=1e-1, initial_gamma=300, k=0.05):
+def train_anfis(X, Y, mem_funcs, y_scaler, epochs=5, tolerance=1e-5, initial_gamma=300, k=0.05):
     """Train ANFIS using hybrid learning algorithm (LSE + backpropagation)"""
 
     # Initialize membership function indices for rule generation
-    mem_funcs_by_variable = []
-    for z in range(len(mem_funcs)):
-        variable_mf_indices = []
-        for x in range(len(mem_funcs[z])):
-            variable_mf_indices.append(x)
-        mem_funcs_by_variable.append(variable_mf_indices)
+    mem_funcs_by_variable = [
+        list(range(len(mem_funcs[z])))
+        for z in range(len(mem_funcs))
+    ]
     
     # Generate all possible rules (Cartesian product of membership function indices)
     rules = np.array(list(itertools.product(*mem_funcs_by_variable)))
     
     # Initialize consequent parameters
     num_consequent_params = Y.ndim * len(rules) * (X.shape[1] + 1)
-    consequents = np.empty(num_consequent_params)
-    consequents.fill(0)
+    consequents = np.zeros(num_consequent_params)
     
     # Initialize training variables
-    errors = np.empty(0)
+    errors = []
     
-    # Check if all variables have same number of membership functions
-    first_var_mf_count = len(mem_funcs_by_variable[0])
-    mem_funcs_homo = True
-    for i in mem_funcs_by_variable:
-        if len(i) != first_var_mf_count:
-            mem_funcs_homo = False
-            break
+    # Check if all variables have the same number of membership functions
+    mem_funcs_homo = all(len(mf) == len(mem_funcs[0]) for mf in mem_funcs_by_variable)
     
     convergence = False
     epoch = 1
-    
-    # Main training loop
-    while (epoch < epochs + 1) and (convergence is not True):
-        # Forward pass through network
+
+    while (epoch <= epochs) and (not convergence):
+        # Forward pass
         layer_four, w_sum, w = forward_half_pass(X, mem_funcs, rules)
         
-        # Estimate consequent parameters using least squares
+        # LSE to update consequent parameters
         layer_five = np.array(lse(layer_four, Y, initial_gamma))
         consequents = layer_five
         
-        # Calculate network output
-        layer_five = np.dot(layer_four, layer_five)
-        
-        # Calculate mean squared error
-        error_matrix = Y - layer_five.T
-        squared_errors = error_matrix ** 2
-        total_error = np.sum(squared_errors)
+        # Network output (normalized)
+        y_pred_norm = np.dot(layer_four, layer_five).ravel()
 
-        dots = '.  '
-        if epoch%3 == 0:
-            dots = '.  '
-        elif epoch%3 == 1:
-            dots = '.. '
-        elif epoch%3 == 2:
-            dots = '...'
+        # Inverse scale both prediction and ground truth
+        y_pred_real = y_scaler.inverse_transform(y_pred_norm.reshape(-1, 1)).ravel()
+        y_true_real = y_scaler.inverse_transform(Y.reshape(-1, 1)).ravel()
 
+        # Calculate error on original scale
+        error = np.sqrt(mean_squared_error(y_true_real, y_pred_real))
+        errors.append(error)
+
+        # Display progress
+        dots = ['.  ', '.. ', '...'][epoch % 3]
         print(f"\rCurrent epoch: {epoch}/{epochs} {dots}", end='', flush=True)
-        
-        # Store error for convergence checking
-        errors = np.append(errors, total_error)
-        
-        # Check for convergence
-        if len(errors) != 0:
-            if errors[len(errors)-1] < tolerance:
-                convergence = True
-        
-        # Backpropagation step (if not converged)
-        if convergence is not True:
-            # Calculate gradients for all variables
-            cols = range(len(X[0,:]))
-            de_dalpha = []
-            
-            for col_x in range(X.shape[1]):
-                gradients = backprop(X, Y, mem_funcs, rules, consequents, col_x, cols, w_sum, w, layer_five)
-                de_dalpha.append(gradients)
-            
-            # Adaptive learning rate adjustment
-            if len(errors) >= 4:
-                # If error is consistently decreasing, increase learning rate
-                recent_errors = errors[-4:]
-                if (recent_errors[0] > recent_errors[1] > recent_errors[2] > recent_errors[3]):
-                    k = k * 1.1
-            
-            if len(errors) >= 5:
-                # If error oscillates, decrease learning rate
-                if ((errors[-1] < errors[-2]) and (errors[-3] < errors[-2]) and 
-                    (errors[-3] < errors[-4]) and (errors[-5] > errors[-4])):
-                    k = k * 0.9
-            
-            # Calculate adaptive learning rate
-            # Flatten all gradients to calculate total gradient magnitude
-            all_gradients = []
-            for x in range(len(de_dalpha)):
-                for y in range(len(de_dalpha[x])):
-                    for z in range(len(de_dalpha[x][y])):
-                        all_gradients.append(de_dalpha[x][y][z])
-            
-            total_gradient_magnitude = np.abs(np.sum(all_gradients))
-            
-            if total_gradient_magnitude == 0:
-                eta = k
-            else:
-                eta = k / total_gradient_magnitude
-            
-            if np.isinf(eta):
-                eta = k
-            
-            # Calculate parameter updates
-            d_alpha = copy.deepcopy(de_dalpha)
-            
+
+        # Convergence check
+        if error < tolerance:
+            convergence = True
+
+        if not convergence:
+            # Backpropagation
+            de_dalpha = [
+                backprop(X, Y, mem_funcs, rules, consequents, col_x, range(X.shape[1]), w_sum, w, y_pred_norm)
+                for col_x in range(X.shape[1])
+            ]
+
+            # Adaptive learning rate
+            if len(errors) >= 4 and all(errors[i] > errors[i + 1] for i in range(-4, -1)):
+                k *= 1.1
+            if len(errors) >= 5 and (errors[-1] < errors[-2] and errors[-3] < errors[-2] and
+                                     errors[-3] < errors[-4] and errors[-5] > errors[-4]):
+                k *= 0.9
+
+            # Compute adaptive eta
+            all_gradients = [g for g_layer in de_dalpha for g_mf in g_layer for g in g_mf]
+            total_grad_mag = np.abs(np.sum(all_gradients))
+            eta = k / total_grad_mag if total_grad_mag != 0 and not np.isinf(total_grad_mag) else k
+
+            # Compute parameter updates
             if not mem_funcs_homo:
-                # Handle non-homogeneous membership functions
-                for x in range(len(de_dalpha)):
-                    for y in range(len(de_dalpha[x])):
-                        for z in range(len(de_dalpha[x][y])):
-                            d_alpha[x][y][z] = -eta * de_dalpha[x][y][z]
+                for i in range(len(mem_funcs)):
+                    for j in range(len(mem_funcs[i])):
+                        for k_idx, param_key in enumerate(sorted(mem_funcs[i][j][1])):
+                            update = -eta * de_dalpha[i][j][k_idx]
+                            mem_funcs[i][j][1][param_key] += update
             else:
-                # Handle homogeneous membership functions
-                de_dalpha_array = np.array(de_dalpha)
-                d_alpha = -eta * de_dalpha_array
-            
-            # Update membership function parameters
-            for vars_with_mem_funcs in range(len(mem_funcs)):
-                variable_mf_indices = mem_funcs_by_variable[vars_with_mem_funcs]
-                
-                for mfs in range(len(variable_mf_indices)):
-                    # Get sorted parameter keys for current membership function
-                    current_mf = mem_funcs[vars_with_mem_funcs][mfs]
-                    param_list = sorted(current_mf[1].keys())
-                    
-                    # Update each parameter
-                    for param in range(len(param_list)):
-                        param_key = param_list[param]
-                        current_value = mem_funcs[vars_with_mem_funcs][mfs][1][param_key]
-                        update_value = d_alpha[vars_with_mem_funcs][mfs][param]
-                        new_value = current_value + update_value
-                        mem_funcs[vars_with_mem_funcs][mfs][1][param_key] = new_value
-        
-        epoch = epoch + 1
-    
-    print()  # New line after training completion
-    return mem_funcs, consequents, errors
+                d_alpha = -eta * np.array(de_dalpha)
+                for i in range(len(mem_funcs)):
+                    for j in range(len(mem_funcs[i])):
+                        for k_idx, param_key in enumerate(sorted(mem_funcs[i][j][1])):
+                            mem_funcs[i][j][1][param_key] += d_alpha[i][j][k_idx]
 
+        epoch += 1
 
-def predict_anfis(X_test, mem_funcs, consequents):
-    """Make predictions using trained ANFIS model"""
-    
+    print()  # New line
+    return mem_funcs, consequents, np.array(errors)
+
+def predict(X, mem_funcs, consequents, y_scaler):
+    """Make predictions using trained ANFIS model and rescale outputs to original target scale."""
     # Recreate membership function indices for rule generation
-    mem_funcs_by_variable = []
-    for z in range(len(mem_funcs)):
-        variable_mf_indices = []
-        for x in range(len(mem_funcs[z])):
-            variable_mf_indices.append(x)
-        mem_funcs_by_variable.append(variable_mf_indices)
+    mem_funcs_by_variable = [
+        list(range(len(mem_funcs[z])))
+        for z in range(len(mem_funcs))
+    ]
     
     # Regenerate rules (same as in training)
     rules = np.array(list(itertools.product(*mem_funcs_by_variable)))
     
     # Forward pass to get predictions
-    layer_four, w_sum, w = forward_half_pass(X_test, mem_funcs, rules)
+    layer_four, _, _ = forward_half_pass(X, mem_funcs, rules)
     
-    # Calculate final output
+    # Calculate final normalized output
     layer_five = np.dot(layer_four, consequents)
-    
-    return layer_five
+
+    # Rescale output to original target range
+    rescaled_output = y_scaler.inverse_transform(layer_five.reshape(-1, 1)).ravel()
+
+    return rescaled_output

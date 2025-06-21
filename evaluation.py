@@ -12,7 +12,7 @@ def plot_mfs(mfs, input_features, plot_label):
     cols = 2
     rows = (num_features + 1) // 2
 
-    fig, axes = plt.subplots(rows, cols, figsize=(cols * 6, rows * 4))
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 8, rows * 5))
     axes = axes.flatten()
 
     for i, feature_mfs in enumerate(mfs):
@@ -25,9 +25,7 @@ def plot_mfs(mfs, input_features, plot_label):
         
         fig.suptitle(plot_label, fontsize=16)
         fig.supxlabel("Input Value", fontsize=12)
-        fig.supylabel("Membership Degree", fontsize=12)
         ax.set_title(f"Gaussian MFs for {input_features[i]}")
-        ax.set_xlabel("Input value")
         ax.set_ylabel("Membership degree")
         ax.legend()
         ax.grid(True)
@@ -39,13 +37,13 @@ def plot_mfs(mfs, input_features, plot_label):
     plt.tight_layout()
     plt.draw()
 
-def plot_training_errors(errors, training_type="Trained"):
+def plot_training_errors(errors):
     """Plot training errors per epoch"""
     plt.figure(figsize=(6, 4))
     plt.plot(range(len(errors)), errors, 'ro-', label='Training Error')
     plt.ylabel('Error')
     plt.xlabel('Epoch')
-    plt.title('Training Error over Epochs')
+    plt.title('Training MSE over Epochs')
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
